@@ -80,11 +80,9 @@ public class FraudEngineService {
         String status;
         String message;
 
-
-
         if (isMerchantBlacklisted) {
             status = "FRAUD";
-            score = 100; // or some constant
+            score = 100;
             message = "Merchant has been blacklisted";
         } else {
             List<TransactionsEntity> merchantRecent5minTx =

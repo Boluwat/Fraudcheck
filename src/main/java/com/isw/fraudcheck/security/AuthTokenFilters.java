@@ -22,7 +22,9 @@ import java.io.IOException;
 @Slf4j
 public class AuthTokenFilters extends OncePerRequestFilter {
 
-    public static final String BEARER = "Bearer ";
+    public static final String BEARER = "Bearer";
+
+
     @Autowired
     private JwtUtil jwtUtil;
 
@@ -57,10 +59,10 @@ public class AuthTokenFilters extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private String parseJwt(HttpServletRequest request)  {
+    private String parseJwt(HttpServletRequest request) {
         String headerAuth = request.getHeader("Authorization");
         if (headerAuth != null && headerAuth.startsWith(BEARER + " ")) {
-            return headerAuth.substring(BEARER.length());
+            return headerAuth.substring((BEARER + " ").length());
         }
         return null;
     }

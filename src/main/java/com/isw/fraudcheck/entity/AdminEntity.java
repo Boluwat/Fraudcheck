@@ -1,16 +1,17 @@
 package com.isw.fraudcheck.entity;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
 
 @Entity
-@Getter
-@Setter
+@Builder
 @Table(name="Admin")
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
 public class AdminEntity {
 
     @Id

@@ -23,25 +23,22 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Objects;
 
 
 @Service
 public class AdminService {
     private final AdminRepository adminRepository;
-    private final BlackListedMerchantRepository blackListedMerchantRepository;
     private final AuthenticationManager authenticationManager;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
-    private final TransactionJdbcQueryRepository queryRepository;
 
 
     public AdminService(AdminRepository adminRepository, BlackListedMerchantRepository blackListedMerchantRepository, AuthenticationManager authenticationManager, PasswordEncoder passwordEncoder, JwtUtil jwtUtil, TransactionJdbcQueryRepository queryRepository) {
         this.adminRepository = adminRepository;
-        this.blackListedMerchantRepository = blackListedMerchantRepository;
         this.authenticationManager = authenticationManager;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
-        this.queryRepository = queryRepository;
     }
 
     public ApiResponse<loginResponse> adminLogin(AdminRequestDTO request) {
@@ -56,8 +53,10 @@ public class AdminService {
             throw new UnauthorizedException("Invalid credentials");
         }
 
-        UserDetails userDetails = (UserDetails) authenticateUser.getPrincipal();
-        String token = jwtUtil.generateToken(userDetails != null ? userDetails.getUsername() : null);
+        if (authenticateUser.getPrincipal() == null) {
+            throw new UnauthorizedException("Invalid credentials");
+        }
+        String token = jwtUtil.generateToken((UserDetails) authenticateUser.getPrincipal());
 
         return  ApiResponse.<loginResponse>builder()
                 .success(true)
@@ -71,25 +70,23 @@ public class AdminService {
                 .build();
     }
 
-    public String createAdmin(AdminRequestDTO adminRequestDTO) {
-        if (adminRepository.existsByUsername(adminRequestDTO.getUsername())) {
+    public ApiResponse<AdminResponseDTO> createAdmin(AdminRequestDTO dto) {
+        if (adminRepository.existsByUsername(dto.getUsername())) {
             throw new DuplicateRequestException("Already exist in the system");
         }
-        AdminEntity newAdmin = new AdminEntity();
-        newAdmin.setEmail(adminRequestDTO.getEmail());
-        newAdmin.setUsername(adminRequestDTO.getUsername());
-        newAdmin.setPassword(passwordEncoder.encode(adminRequestDTO.getPassword()));
-        newAdmin.setRole(Role.ADMIN);
-        adminRepository.save(newAdmin);
-        return "Admin created Successfully";
-    }
-
-    public List<BlackListedMerchant> getBlackListedMerchants() {
-        return blackListedMerchantRepository.findAll();
-    }
-
-    public List<TransactionsEntity> getTransactions() {
-        return queryRepository.findByStatus();
+        AdminEntity admin = adminRepository.save(
+                AdminEntity.builder()
+                        .email(dto.getEmail())
+                        .username(dto.getUsername())
+                        .password(passwordEncoder.encode(dto.getPassword()))
+                        .role(Role.ADMIN)
+                        .build()
+        );
+        return ApiResponse.<AdminResponseDTO>builder()
+                .success(true)
+                .message("Admin created successfully")
+                .data(toResponseData(admin))
+                .build();
     }
 
 
