@@ -3,6 +3,7 @@ package com.isw.fraudcheck.service;
 
 import com.isw.fraudcheck.entity.AdminEntity;
 import com.isw.fraudcheck.repository.AdminRepository;
+import com.isw.fraudcheck.security.CustomUserDetails;
 import io.jsonwebtoken.lang.Collections;
 import org.jspecify.annotations.NonNull;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -28,10 +29,6 @@ public class CustomUserDetailsService implements UserDetailsService {
         AdminEntity admin = adminRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("Invalid Credentials provided"));;
 
-        return new org.springframework.security.core.userdetails.User(
-                admin.getUsername(),
-                admin.getPassword(),
-                List.of(new SimpleGrantedAuthority("ADMIN"))
-        );
+        return new CustomUserDetails(admin);
     }
 }

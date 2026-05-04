@@ -2,6 +2,7 @@ package com.isw.fraudcheck.controller;
 
 
 import com.isw.fraudcheck.DTOs.AdminRequestDTO;
+import com.isw.fraudcheck.DTOs.AdminResponseDTO;
 import com.isw.fraudcheck.DTOs.ApiResponse;
 import com.isw.fraudcheck.DTOs.loginResponse;
 import com.isw.fraudcheck.entity.BlackListedMerchant;
@@ -26,7 +27,7 @@ public class AuthenticationController {
     }
 
     @PostMapping("")
-    public String createAdmin(@RequestBody AdminRequestDTO adminRequestDTO) {
+    public ApiResponse<AdminResponseDTO> createAdmin(@RequestBody AdminRequestDTO adminRequestDTO) {
         return adminService.createAdmin(adminRequestDTO);
     }
 
