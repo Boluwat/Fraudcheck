@@ -2,6 +2,7 @@ package com.isw.fraudcheck.utils;
 
 import com.isw.fraudcheck.entity.TransactionsEntity;
 import org.springframework.jdbc.core.JdbcTemplate;   // Spring's JdbcTemplate
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -23,6 +24,7 @@ public class TransactionJdbcLog {
     public TransactionJdbcLog(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
+
 
     public void log(TransactionsEntity txn) {
         if (txn == null) return;

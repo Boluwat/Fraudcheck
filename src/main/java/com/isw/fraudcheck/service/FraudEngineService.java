@@ -1,14 +1,15 @@
 package com.isw.fraudcheck.service;
 
 
-import com.isw.fraudcheck.DTOs.TransactionsRequestDTO;
-import com.isw.fraudcheck.DTOs.TransactionsResponseDTO;
+import com.isw.fraudcheck.DTOs.*;
+import com.isw.fraudcheck.ErrorHandling.BadRequestException;
 import com.isw.fraudcheck.entity.BlackListedMerchant;
 import com.isw.fraudcheck.entity.TransactionsEntity;
 import com.isw.fraudcheck.repository.BlackListedMerchantRepository;
 import com.isw.fraudcheck.repository.TransactionJdbcQueryRepository;
 import com.isw.fraudcheck.utils.IpRequestFlagger;
 import com.isw.fraudcheck.utils.TransactionJdbcLog;
+import jakarta.transaction.Transactional;
 import org.aspectj.lang.annotation.Around;
 import org.springframework.stereotype.Service;
 
@@ -22,14 +23,13 @@ import java.util.List;
 @Service
 public class FraudEngineService {
 
-    private static final int SCORE_IP_DISTINCT_CARDS = 30;
-    private static final int SCORE_MERCHANT_10MIN = 35;
-    private static final int SCORE_CARD_1MIN = 75;
-    private static final int SCORE_CARD_24H = 25;
-    private static final int SCORE_HIGH_AMOUNT = 30;
-    private static final int SCORE_AMOUNT_SPIKE = 20;
-    private static final int SCORE_IP_FLAGGED = 70;
-    private static final int SCORE_MERCHANT_MANY_TINY = 40;
+    private static final int SCORE_IP_DISTINCT_CARDS = 10;
+    private static final int SCORE_MERCHANT_10MIN = 10;
+    private static final int SCORE_CARD_1MIN = 30;
+    private static final int SCORE_CARD_24H = 5;
+    private static final int SCORE_AMOUNT_SPIKE = 5;
+    private static final int SCORE_IP_FLAGGED = 35;
+    private static final int SCORE_MERCHANT_MANY_TINY = 3;
 
     private static final int CARD_1MIN_THRESHOLD = 5;
     private static final int MERCHANT_10MIN_THRESHOLD = 5;
@@ -51,30 +51,32 @@ public class FraudEngineService {
 
     private static final int SCORE_BLACKLIST_THRESHOLD = 85;
     private static final int SCORE_FRAUD_THRESHOLD = 70;
-    private static final int SCORE_REVIEW_THRESHOLD = 40;
-    private static final int SCORE_24H_TOTAL_SPEND = 30;
+    private static final int SCORE_REVIEW_THRESHOLD = 50;
+    private static final int SCORE_24H_TOTAL_SPEND = 2;
 
 
-    private final TransactionJdbcQueryRepository transactionJdbcQueryRepository;
+    private final TransactionJdbcQueryRepository queryRepository;
     private final BlackListedMerchantRepository blackListedMerchantRepository;
     private final TransactionJdbcLog transactionJdbcLog;
     private final IpRequestFlagger ipRequestFlagger;
 
     public FraudEngineService(TransactionJdbcQueryRepository transactionJdbcQueryRepository,
                               BlackListedMerchantRepository blackListedMerchantRepository, TransactionJdbcLog transactionJdbcLog, IpRequestFlagger ipRequestFlagger) {
-        this.transactionJdbcQueryRepository = transactionJdbcQueryRepository;
+        this.queryRepository = transactionJdbcQueryRepository;
         this.blackListedMerchantRepository = blackListedMerchantRepository;
         this.transactionJdbcLog = transactionJdbcLog;
         this.ipRequestFlagger = ipRequestFlagger;
     }
 
 
+    @Transactional
     public TransactionsResponseDTO processTransaction(TransactionsRequestDTO request) {
 
         String merchantId = request.getMerchantId();
         boolean isMerchantBlacklisted = blackListedMerchantRepository.existsById(merchantId);
         String cardHash = hashCardNumber(request.getCardNumber());
         LocalDateTime now = LocalDateTime.now();
+        String ip = request.getIpAddress();
 
         int score = 0;
         String status;
@@ -85,26 +87,32 @@ public class FraudEngineService {
             score = 100;
             message = "Merchant has been blacklisted";
         } else {
-            List<TransactionsEntity> merchantRecent5minTx =
-                    transactionJdbcQueryRepository.findRecentByMerchant(merchantId, now.minusMinutes(MERCHANT_5MIN_WINDOW_MIN));
-            List<TransactionsEntity> merchantRecent10minTx =
-                    transactionJdbcQueryRepository.findRecentByMerchant(merchantId, now.minusMinutes(MERCHANT_10MIN_WINDOW_MIN));
-            List<TransactionsEntity> cardRecent1min =
-                    transactionJdbcQueryRepository.findRecentByCard(cardHash, now.minusMinutes(CARD_1MIN_WINDOW_MIN));
-            List<TransactionsEntity> cardRecent24h =
-                    transactionJdbcQueryRepository.findRecentByCard(cardHash, now.minusHours(CARD_24H_WINDOW_HOURS));
-            List<TransactionsEntity> recentIpTx =
-                    transactionJdbcQueryRepository.findRecentByIp(request.getIpAddress(), now.minusMinutes(IP_10MIN_WINDOW_MIN));
+            MerchantsStats merchantStats = queryRepository.getMerchantStats(
+                    merchantId,
+                    now.minusMinutes(MERCHANT_5MIN_WINDOW_MIN),
+                    now.minusMinutes(MERCHANT_10MIN_WINDOW_MIN),
+                    AMOUNT_TINY
+            );
 
-            score = computeRiskScore(request, merchantRecent5minTx, merchantRecent10minTx,
-                    cardRecent1min, cardRecent24h, recentIpTx);
+            CardStats cardStats = queryRepository.getCardStats(
+                    cardHash,
+                    now.minusMinutes(CARD_1MIN_WINDOW_MIN),
+                    now.minusHours(CARD_24H_WINDOW_HOURS)
+            );
 
-            if (shouldBlacklistMerchant(score, merchantRecent5minTx.size())) {
+            IpStats ipStats = queryRepository.getIpStats(
+                    ip,
+                    now.minusMinutes(IP_10MIN_WINDOW_MIN)
+            );
+
+            score = computeRiskScore(request, merchantStats, cardStats, ipStats);
+
+            if (shouldBlacklistMerchant(score, merchantStats.txLast5MinCount())) {
                 blacklistMerchantIfNeeded(merchantId, score);
                 status = "FRAUD";
                 message = "Transaction declined & merchant blacklisted";
             } else if (score >= SCORE_FRAUD_THRESHOLD) {
-                status = "FLAGGED";
+                status = "DECLINED_HIGH_RISK";
                 message = "Transaction declined – high fraud risk";
             } else if (score >= SCORE_REVIEW_THRESHOLD) {
                 status = "REVIEW";
@@ -149,6 +157,10 @@ public class FraudEngineService {
 
         String cleaned = cardNumber.replaceAll("\\D", "").trim();
 
+        if (cleaned.length() < 13 || cleaned.length() > 19) {
+            throw new BadRequestException("Invalid card number length. Must be between 13 and 19 digits.");
+        }
+
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hashBytes = digest.digest(cleaned.getBytes(StandardCharsets.UTF_8));
@@ -166,56 +178,44 @@ public class FraudEngineService {
     }
 
     private int computeRiskScore(TransactionsRequestDTO request,
-                                 List<TransactionsEntity> merchantRecent5minTx,
-                                 List<TransactionsEntity> merchantRecent10minTx,
-                                 List<TransactionsEntity> cardRecent1min,
-                                 List<TransactionsEntity> cardRecent24h,
-                                 List<TransactionsEntity> recentIpTx) {
+                                MerchantsStats merchantsStats,
+                                 CardStats cardStats,
+                                 IpStats ipStats) {
 
         int score = 0;
         Double amount = request.getAmount();
 
         // Distinct cards from same IP (card number already hashed in the DB)
-        long distinctCardsFromIp = recentIpTx.stream()
-                .map(TransactionsEntity::getCardNumber)
-                .distinct()
-                .count();
+        long distinctCardsFromIp = ipStats.distinctCardsLast10Min();
         if (distinctCardsFromIp >= IP_DISTINCT_CARD_THRESHOLD) {
             score += SCORE_IP_DISTINCT_CARDS;
         }
 
         // Merchant velocity (10 minutes)
-        if (merchantRecent10minTx.size() >= MERCHANT_10MIN_THRESHOLD) {
+        if (merchantsStats.txLast10MinCount() >= MERCHANT_10MIN_THRESHOLD) {
             score += SCORE_MERCHANT_10MIN;
         }
 
         // Card velocity (1 minute)
-        if (cardRecent1min.size() >= CARD_1MIN_THRESHOLD) {
+        if (cardStats.txLast1MinCount() >= CARD_1MIN_THRESHOLD) {
             score += SCORE_CARD_1MIN;
         }
 
         // Card 24h volume
-        if (cardRecent24h.size() >= CARD_24H_THRESHOLD) {
+        if (cardStats.txLast24hCount() >= CARD_24H_THRESHOLD) {
             score += SCORE_CARD_24H;
         }
 
 //        total spend within 24
-        double totalSpend24h = cardRecent24h.stream()
-                .mapToDouble(TransactionsEntity::getTransactionAmount)
-                .sum();
-
+        double totalSpend24h = cardStats.totalAmount24h();
         if (totalSpend24h >= AMOUNT_24H_TOTAL_THRESHOLD) {
             score += SCORE_24H_TOTAL_SPEND;
         }
 
 
         // Amount spike vs. 24h average
-        if (amount > AMOUNT_SIGNIFICANT && !cardRecent24h.isEmpty()) {
-            double avg24hAmount = cardRecent24h.stream()
-                    .mapToDouble(TransactionsEntity::getTransactionAmount)
-                    .average()
-                    .orElse(0.0);
-
+        if (amount != null && amount > AMOUNT_SIGNIFICANT && cardStats.txLast24hCount() > 0) {
+            double avg24hAmount = cardStats.avgAmount24h();
             if (avg24hAmount > 0 && amount > avg24hAmount * AMOUNT_SPIKE_MULTIPLIER) {
                 score += SCORE_AMOUNT_SPIKE;
             }
@@ -227,8 +227,8 @@ public class FraudEngineService {
         }
 
         // Many tiny transactions at same merchant
-        if (merchantRecent5minTx.size() >= MERCHANT_5MIN_VERY_HIGH_THRESHOLD
-                && amount <= AMOUNT_TINY) {
+        if (merchantsStats.tinyTxLast5MinCount() >= MERCHANT_5MIN_VERY_HIGH_THRESHOLD
+                && amount != null && amount <= AMOUNT_TINY) {
             score += SCORE_MERCHANT_MANY_TINY;
         }
 
@@ -252,17 +252,24 @@ public class FraudEngineService {
         return txn;
     }
 
-    private boolean shouldBlacklistMerchant(int score, int merchantRecent5minTx) {
+    private boolean shouldBlacklistMerchant(int score, long merchantRecent5minTx) {
         return score >= SCORE_BLACKLIST_THRESHOLD
                 || (score >= SCORE_FRAUD_THRESHOLD && merchantRecent5minTx >= MERCHANT_5MIN_VERY_HIGH_THRESHOLD);
     }
 
     private void blacklistMerchantIfNeeded(String merchantId, int score) {
-        if (!blackListedMerchantRepository.existsById(merchantId)) {
-            BlackListedMerchant bm = new BlackListedMerchant();
-            bm.setMerchantId(merchantId);
-            bm.setReason("Severe fraud signals (score " + score + "): velocity + amount + IP");
-            blackListedMerchantRepository.save(bm);
+
+        // do nothing if already blacklisted
+        if (blackListedMerchantRepository.existsById(merchantId)) {
+            return;
         }
+
+        BlackListedMerchant bm = new BlackListedMerchant();
+        bm.setMerchantId(merchantId);
+        bm.setReason("Severe fraud signals score: " + (score));
+        bm.setBlackListedAt(LocalDateTime.now());
+        blackListedMerchantRepository.save(bm);
+
+//        log.warn("Merchant {} has been blacklisted — score {}", merchantId, score);
     }
 }

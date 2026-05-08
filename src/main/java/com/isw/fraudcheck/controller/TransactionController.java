@@ -17,22 +17,11 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/admin/transactions/")
 public class TransactionController {
-
-    private final FraudEngineService fraudEngineService;
-    private final AdminService adminService;
     private final TransactionService transactionService;
 
-    public TransactionController(FraudEngineService fraudEngineService, AdminService adminService, TransactionService transactionService) {
-        this.fraudEngineService = fraudEngineService;
-        this.adminService = adminService;
+    public TransactionController(TransactionService transactionService) {
         this.transactionService = transactionService;
     }
-
-    @PostMapping("/ingestAPI")
-    public TransactionsResponseDTO createTransaction(@RequestBody TransactionsRequestDTO transactionsRequestDTO) {
-        return fraudEngineService.processTransaction(transactionsRequestDTO);
-    }
-
 
     @GetMapping("/all-blaclistedMerchant")
     public List<BlackListedMerchant> allBlackListedMerchant() {
