@@ -1,6 +1,7 @@
 package com.isw.fraudcheck.service;
 
 
+import com.isw.fraudcheck.DTOs.ApiResponse;
 import com.isw.fraudcheck.entity.BlackListedMerchant;
 import com.isw.fraudcheck.entity.TransactionsEntity;
 import com.isw.fraudcheck.repository.BlackListedMerchantRepository;
@@ -23,7 +24,12 @@ public class TransactionService {
         return blackListedMerchantRepository.findAll();
     }
 
-    public List<TransactionsEntity> getTransactions() {
-        return queryRepository.findByStatus();
+    public ApiResponse<List<TransactionsEntity>> getTransactions() {
+        List<TransactionsEntity> transactions = queryRepository.findByStatus();
+        return new ApiResponse<>(
+                true,
+                "Transactions fetched successfully",
+                transactions
+        );
     }
 }

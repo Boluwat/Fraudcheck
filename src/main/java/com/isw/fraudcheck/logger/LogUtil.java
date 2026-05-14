@@ -23,15 +23,15 @@ public class LogUtil {
         return masked;
     }
 
-    // Handles DTOs — masks fields inside the object
+
     private static Object maskSensitiveFields(Object arg) {
         if (arg == null) return null;
 
         try {
-            // Work on a string representation to avoid mutating the real object
+
             String json = arg.toString();
             for (String field : SENSITIVE_PARAMS) {
-                // Matches: password=someValue, or "password":"someValue"
+                // Matches: password=someValue
                 json = json.replaceAll(
                         "(?i)(" + field + "=)[^,)]+",   "$$1******"
                 ).replaceAll(

@@ -1,6 +1,7 @@
 package com.isw.fraudcheck.controller;
 
 
+import com.isw.fraudcheck.DTOs.ApiResponse;
 import com.isw.fraudcheck.DTOs.TransactionsRequestDTO;
 import com.isw.fraudcheck.DTOs.TransactionsResponseDTO;
 import com.isw.fraudcheck.entity.BlackListedMerchant;
@@ -30,7 +31,7 @@ public class TransactionController {
 
 
     @GetMapping("/allFlaggedTransactions")
-    public List<TransactionsEntity> allFlaggedTransactions() {
+    public ApiResponse<List<TransactionsEntity>> allFlaggedTransactions() {
         return transactionService.getTransactions();
     }
 

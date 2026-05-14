@@ -23,6 +23,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorHandlingDTO> handleException(Exception ex){
         ErrorHandlingDTO error = new ErrorHandlingDTO(ex.getMessage(), 500);
+        ex.printStackTrace(System.err);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
 
